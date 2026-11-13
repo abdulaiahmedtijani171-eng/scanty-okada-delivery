@@ -30,7 +30,38 @@ $('bookingForm').onsubmit=async e=>{e.preventDefault();const msg=$('message');ms
 let currentAdmin=null;const statuses=['pending','accepted','assigned','picked_up','delivered','cancelled'];
 function loginMessage(t,ok=false){$('loginMessage').textContent=t;$('loginMessage').className='small'+(ok?' success':'')}
 function dashMessage(t,ok=false){$('dashboardMessage').textContent=t;$('dashboardMessage').className='small'+(ok?' success':'')}
-async function getAdminProfile(user){const {data,error}=await supabaseClient.from('riders').select('id,full_name,phone,role').eq('id',user.id).maybeSingle();if(error)throw error;if(!data||data.role!=='admin'){await supabaseClient.auth.signOut();throw new Error('No admin rider record was found for this signed-in user. Check that public.riders.id exactly matches the Supabase Auth UID and that role is admin.');}return data;}
+
+async function getAdminProfile(user) {
+  const { data: admin, error: adminError } = await supabaseClient
+    .from('admin_users')
+    .select('user_id, role')
+    .eq('user_id', user.id)
+    .eq('role', 'admin')
+    .maybeSingle();
+
+  if (adminError) throw adminError;
+
+  if (!admin) {
+    await supabaseClient.auth.signOut();
+    throw new Error('This account is not registered as an admin.');
+  }
+
+  const { data, error } = await supabaseClient
+    .from('riders')
+    .select('id, full_name, phone, role, status, auth_user_id')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  if (!data || data.role !== 'admin') {
+    await supabaseClient.auth.signOut();
+    throw new Error('Admin rider profile not found.');
+  }
+
+  return data;
+}
+
 async function restoreAdminSession(){if(!supabaseClient&&!connect()){loginMessage('Open App setup and save your Supabase details first.');return;}const {data:{session}}=await supabaseClient.auth.getSession();if(!session){$('adminDashboard').classList.add('hidden');$('loginForm').classList.remove('hidden');return;}try{const p=await getAdminProfile(session.user);await showAdmin(session.user,p);}catch(e){$('adminDashboard').classList.add('hidden');$('loginForm').classList.remove('hidden');loginMessage(e.message);}}
 async function showAdmin(user,p){currentAdmin={user,profile:p};$('loginForm').classList.add('hidden');$('adminDashboard').classList.remove('hidden');$('adminIdentity').textContent=(p.full_name||user.email)+' • '+p.role;await loadBookings();}
 $('loginForm').onsubmit=async e=>{e.preventDefault();if(!supabaseClient&&!connect()){loginMessage('Open App setup and save your Supabase details first.');return;}const b=$('loginBtn');b.disabled=true;b.textContent='Signing in...';try{const {data,error}=await supabaseClient.auth.signInWithPassword({email:$('loginEmail').value.trim(),password:$('loginPassword').value});if(error)throw error;const p=await getAdminProfile(data.user);await showAdmin(data.user,p);}catch(err){loginMessage(err.message||'Sign in failed.');}finally{b.disabled=false;b.textContent='Sign in';}};
