@@ -68,7 +68,64 @@ async function loadBookings(){if(!currentAdmin)return;message('dashboardMessage'
 function safe(v){return v===null||v===undefined||v===''?'—':String(v)}
 function makeDetail(label,value){const d=document.createElement('div'),s=document.createElement('small'),b=document.createElement('strong');s.textContent=label;b.textContent=safe(value);d.append(s,b);return d}
 function renderBookings(){const root=$('bookingList');root.innerHTML='';const filter=$('filterStatus').value,term=$('searchBookings').value.trim().toLowerCase();const pending=allBookings.filter(x=>(x.status||'pending')==='pending').length;const active=allBookings.filter(x=>['accepted','assigned','picked_up'].includes(x.status)).length;const done=allBookings.filter(x=>x.status==='delivered').length;$('totalCount').textContent=allBookings.length;$('pendingCount').textContent=pending;$('activeCount').textContent=active;$('doneCount').textContent=done;const rows=allBookings.filter(r=>(filter==='all'||(r.status||'pending')===filter)&&(!term||[r.customer_name,r.customer_phone,r.pickup_area,r.destination_area,r.service_type].some(v=>String(v||'').toLowerCase().includes(term))));if(!rows.length){root.textContent='No bookings match this filter.';return}for(const row of rows){const card=document.createElement('article');card.className='booking';const top=document.createElement('div');top.className='booking-top';const heading=document.createElement('div'),h=document.createElement('h3'),sub=document.createElement('div');h.textContent=`${safe(row.customer_name)} · ${safe(row.service_type).replaceAll('_',' ')}`;sub.className='muted';sub.textContent=`Booking #${safe(row.id)} · ${row.created_at?new Date(row.created_at).toLocaleString():''}`;heading.append(h,sub);const badge=document.createElement('span');badge.className='pill '+(row.status||'pending');badge.textContent=(row.status||'pending').replaceAll('_',' ');top.append(heading,badge);const details=document.createElement('div');details.className='details';details.append(makeDetail('Customer phone',row.customer_phone),makeDetail('Payment',row.payment_method),makeDetail('Pickup',row.pickup_area),makeDetail('Destination',row.destination_area),makeDetail('Pickup instructions',row.pickup_details),makeDetail('Parcel description',row.item_description),makeDetail('Assigned rider ID',row.rider_id));const actions=document.createElement('div');actions.className='actions';const left=document.createElement('div'),label=document.createElement('label'),sel=document.createElement('select');label.textContent='Update booking status';label.style.cssText='display:block;font-size:12px;font-weight:700;margin-bottom:5px';for(const status of STATUSES){const opt=document.createElement('option');opt.value=status;opt.textContent=status.replaceAll('_',' ');sel.append(opt)}sel.value=STATUSES.includes(row.status)?row.status:'pending';left.append(label,sel);const save=document.createElement('button');save.className='btn';save.type='button';save.textContent='Save update';save.onclick=()=>updateBooking(row,sel,save);actions.append(left,save);const contact=document.createElement('p');contact.style.margin='12px 0 0';const a=document.createElement('a');a.className='link';a.href=`https://wa.me/${String(row.customer_phone||'').replace(/\D/g,'')}`;a.target='_blank';a.rel='noopener';a.textContent='Contact customer on WhatsApp';contact.append(a);card.append(top,details,actions,contact);root.append(card)}}
-async function updateBooking(row,select,button){const newStatus=select.value;button.disabled=true;button.textContent='Saving...';try{const {data,error}=await supabaseClient.from('bookings').update({status:newStatus}).eq('id',row.id).select('*').maybeSingle();if(error)throw error;if(!data)throw new Error('No booking row was updated. Supabase did not allow this update. Check the bookings UPDATE RLS policy.');Object.assign(row,data);message('dashboardMessage',`Booking status saved: ${newStatus.replaceAll('_',' ')}.`,'success');renderBookings()}catch(err){console.error(err);message('dashboardMessage','Update failed: '+err.message,'error')}finally{button.disabled=false;button.textContent='Save update'}}
+
+async function updateBooking(row,select,button){
+  const newStatus=select.value;
+  button.disabled=true;
+  button.textContent='Saving...';
+
+  try {
+    const changes={status:newStatus};
+
+    // Automatically identify the signed-in rider
+    if(['accepted','assigned','picked_up','delivered'].includes(newStatus)){
+      const {data:rider,error:riderError}=await supabaseClient
+        .from('riders')
+        .select('id')
+        .eq('auth_user_id',currentAdmin.user.id)
+        .maybeSingle();
+
+      if(riderError) throw riderError;
+
+      if(!rider){
+        throw new Error('No rider profile is linked to your login.');
+      }
+
+      changes.rider_id=rider.id;
+    }
+
+    const {data,error}=await supabaseClient
+      .from('bookings')
+      .update(changes)
+      .eq('id',row.id)
+      .select('*')
+      .maybeSingle();
+
+    if(error) throw error;
+
+    if(!data){
+      throw new Error('No booking was updated. Check UPDATE permissions.');
+    }
+
+    Object.assign(row,data);
+
+    message(
+      'dashboardMessage',
+      `Booking status saved: ${newStatus.replaceAll('_',' ')}.`,
+      'success'
+    );
+
+    renderBookings();
+
+  } catch(err) {
+    console.error(err);
+    message('dashboardMessage','Update failed: '+err.message,'error');
+  } finally {
+    button.disabled=false;
+    button.textContent='Save update';
+  }
+}
+
 $('refreshBookings').onclick=loadBookings;$('filterStatus').onchange=renderBookings;$('searchBookings').oninput=renderBookings;
 $('signOutBtn').onclick=async()=>{await supabaseClient.auth.signOut();currentAdmin=null;allBookings=[];$('dashboardPanel').classList.add('hidden');$('loginPanel').classList.remove('hidden');message('loginMessage','Signed out.','success')};
 </script>
