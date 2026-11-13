@@ -34,9 +34,8 @@ function dashMessage(t,ok=false){$('dashboardMessage').textContent=t;$('dashboar
 async function getAdminProfile(user) {
   const { data: admin, error: adminError } = await supabaseClient
     .from('admin_users')
-    .select('user_id, role')
+    .select('user_id')
     .eq('user_id', user.id)
-    .eq('role', 'admin')
     .maybeSingle();
 
   if (adminError) throw adminError;
@@ -61,6 +60,7 @@ async function getAdminProfile(user) {
 
   return data;
 }
+
 
 async function restoreAdminSession(){if(!supabaseClient&&!connect()){loginMessage('Open App setup and save your Supabase details first.');return;}const {data:{session}}=await supabaseClient.auth.getSession();if(!session){$('adminDashboard').classList.add('hidden');$('loginForm').classList.remove('hidden');return;}try{const p=await getAdminProfile(session.user);await showAdmin(session.user,p);}catch(e){$('adminDashboard').classList.add('hidden');$('loginForm').classList.remove('hidden');loginMessage(e.message);}}
 async function showAdmin(user,p){currentAdmin={user,profile:p};$('loginForm').classList.add('hidden');$('adminDashboard').classList.remove('hidden');$('adminIdentity').textContent=(p.full_name||user.email)+' • '+p.role;await loadBookings();}
